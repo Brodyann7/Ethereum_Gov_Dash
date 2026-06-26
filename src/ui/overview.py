@@ -113,7 +113,9 @@ def show_overview():
         def _recent_key(e):
             if e.last_updated:
                 return e.last_updated.date()
-            return e.created or pd.Timestamp.min.to_pydatetime().date()
+            if e.created:
+                return e.created.date() if hasattr(e.created, 'date') else e.created
+            return pd.Timestamp.min.to_pydatetime().date()
         
         recent_sorted = sorted(eips, key=_recent_key, reverse=True)[:5]
         

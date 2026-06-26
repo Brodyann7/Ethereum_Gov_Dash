@@ -1,9 +1,11 @@
 """Service layer for EIP data aggregation and processing."""
 
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional
 
 import pandas as pd
+import streamlit as st
 from cachetools import TTLCache
 
 from src.api.github_client import get_github_client
@@ -22,8 +24,19 @@ class EIPService:
         self._cache = TTLCache(maxsize=10, ttl=3600)
         self._all_eips: Optional[list[EIP]] = None
     
+    # ---------------------------------------------------------------
+    # Streamlit caching helpers
+    # Static cache key so all users share one cached result.
+    # raw=False avoids creating a copy on every access for performance.
+    # ---------------------------------------------------------------
+    @staticmethod
+    def _make_cache_key() -> str:
+        """A stable, short key for the all-EIPs cache."""
+        # A stable key means the cached value is reused across sessions.
+        return "all_eips_v1"
+
     def get_all_eips(self, force_refresh: bool = False) -> list[EIP]:
-        """Get all EIPs with caching.
+        """Get all EIPs with service-level memory caching.
         
         Args:
             force_refresh: Force refresh from API
@@ -36,6 +49,17 @@ class EIPService:
         
         self._all_eips = self.github_client.get_all_eips()
         return self._all_eips
+    
+    def get_cached_all_eips(self) -> list[EIP]:
+        """Get all EIPs with Streamlit @st.cache_data TTL caching."""
+        cache_key = self._make_cache_key()
+        return self._fetch_all_eips_cached(cache_key)
+    
+    @staticmethod
+    @st.cache_data(ttl=1800, show_spinner=False)
+    def _fetch_all_eips_cached(cache_key: str) -> list[EIP]:
+        """Internal cached fetcher."""
+        return get_github_client().get_all_eips()
     
     def get_eip(self, eip_number: int) -> Optional[EIP]:
         """Get a single EIP by number.
@@ -98,7 +122,7 @@ class EIPService:
             List of recent EIPs
         """
         cutoff = datetime.now() - timedelta(days=days)
-        eips = self.get_all_eips()
+        eips = self.get_cached_all_eips()
         
         recent = []
         for eip in eips:
@@ -118,7 +142,7 @@ class EIPService:
         Returns:
             List of matching EIPs
         """
-        eips = self.get_all_eips()
+        eips = self.get_cached_all_eips()
         query_lower = query.lower()
         
         results = []
@@ -164,7 +188,7 @@ class EIPService:
         Returns:
             Dictionary of statistics
         """
-        eips = self.get_all_eips()
+        eips = self.get_cached_all_eips()
         
         # Count by status
         status_counts = {}
@@ -205,7 +229,7 @@ class EIPService:
             DataFrame with EIP data
         """
         if eips is None:
-            eips = self.get_all_eips()
+            eips = self.get_cached_all_eips()
         
         data = [eip.to_dict() for eip in eips]
         df = pd.DataFrame(data)
@@ -222,7 +246,7 @@ class EIPService:
         Returns:
             DataFrame with date and count columns
         """
-        eips = self.get_all_eips()
+        eips = self.get_cached_all_eips()
         
         # Group by creation date
         timeline = {}
